@@ -1,5 +1,5 @@
 from app.backend.db.database import Base
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Float, Boolean, Text, Numeric
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Float, Boolean, Text, Numeric, UniqueConstraint
 from datetime import datetime
 
 class BranchOfficeModel(Base):
@@ -1024,6 +1024,10 @@ class PayrollCalculatedEmployeeModel(Base):
 
 class CollectionModel(Base):
     __tablename__ = 'collections'
+    __table_args__ = (
+        UniqueConstraint('branch_office_id', 'cashier_id', 'added_date', 
+                        name='uk_collections_branch_cashier_date'),
+    )
 
     id = Column(Integer, primary_key=True)
     branch_office_id = Column(Integer)

@@ -33,39 +33,48 @@ class CollectionClass:
             card_net_amount = data[9]
             total_tickets = data[10]
 
-            # Buscar registro existente
-            record = self.db.query(CollectionModel).filter_by(
-                cashier_id=cashier_id,
-                branch_office_id=branch_office_id,
-                added_date=added_date
-            ).first()
+            try:
+                # Buscar registro existente
+                record = self.db.query(CollectionModel).filter(
+                    CollectionModel.cashier_id == cashier_id,
+                    CollectionModel.branch_office_id == branch_office_id,
+                    CollectionModel.added_date == added_date
+                ).first()
 
-            if record:
-                if record.cash_gross_amount != cash_gross_amount or record.card_gross_amount != card_gross_amount:
-                    record.cash_gross_amount = cash_gross_amount
-                    record.cash_net_amount = cash_net_amount
-                    record.card_gross_amount = card_gross_amount
-                    record.card_net_amount = card_net_amount
-                    record.total_tickets = total_tickets
-                    record.updated_date = current_date
-
-                    self.db.commit()
-            else:
-                new_data = {
-                    'cashier_id': cashier_id,
-                    'branch_office_id': branch_office_id,
-                    'added_date': added_date,
-                    'cash_gross_amount': cash_gross_amount,
-                    'cash_net_amount': cash_net_amount,
-                    'card_gross_amount': card_gross_amount,
-                    'card_net_amount': card_net_amount,
-                    'total_tickets': total_tickets,
-                    'updated_date': current_date
-                }
-                new_record = CollectionModel(**new_data)
-                self.db.add(new_record)
-
-                self.db.commit()
+                if record:
+                    if record.cash_gross_amount != cash_gross_amount or record.card_gross_amount != card_gross_amount:
+                        record.cash_gross_amount = cash_gross_amount
+                        record.cash_net_amount = cash_net_amount
+                        record.card_gross_amount = card_gross_amount
+                        record.card_net_amount = card_net_amount
+                        record.total_tickets = total_tickets
+                        record.updated_date = current_date
+                else:
+                    new_data = {
+                        'cashier_id': cashier_id,
+                        'branch_office_id': branch_office_id,
+                        'added_date': added_date,
+                        'cash_gross_amount': cash_gross_amount,
+                        'cash_net_amount': cash_net_amount,
+                        'card_gross_amount': card_gross_amount,
+                        'card_net_amount': card_net_amount,
+                        'total_tickets': total_tickets,
+                        'updated_date': current_date
+                    }
+                    new_record = CollectionModel(**new_data)
+                    self.db.add(new_record)
+                    
+            except Exception as e:
+                print(f"Error processing collection record: {str(e)}")
+                self.db.rollback()
+                continue
+        
+        # Commit una sola vez al final para todas las operaciones
+        try:
+            self.db.commit()
+        except Exception as e:
+            print(f"Error committing batch update: {str(e)}")
+            self.db.rollback()
 
 
     def get_all_collections(self):
@@ -432,14 +441,18 @@ class CollectionClass:
         
     def existence(self, branch_office_id, cashier_id, added_date):
         try:
-            existence = self.db.query(CollectionModel).filter(CollectionModel.branch_office_id == branch_office_id).filter(CollectionModel.cashier_id == cashier_id).filter(CollectionModel.added_date == added_date).first()
+            existence = self.db.query(CollectionModel).filter(
+                CollectionModel.branch_office_id == branch_office_id,
+                CollectionModel.cashier_id == cashier_id,
+                CollectionModel.added_date == added_date
+            ).first()
             
             if existence:
                 return existence
             else:
-                return 0
+                return None
         except Exception as e:
-            return 0
+            return None
     
     def store_redcomercio (self, cashier_id, branch_office_id, gross_total, net_total, total_tickets, date):
         collection = CollectionModel(
@@ -507,7 +520,7 @@ class CollectionClass:
         current_date = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
         collection_inputs['added_date'] = collection_inputs['added_date'].split(" ")[0]
 
-        collection_count = self.existence(collection_inputs['branch_office_id'], collection_inputs['cashier_id'], collection_inputs['added_date'])
+        existing_collection = self.existence(collection_inputs['branch_office_id'], collection_inputs['cashier_id'], collection_inputs['added_date'])
 
         credit_note_amount = DteClass(self.db).verifiy_credit_note_amount(collection_inputs['branch_office_id'], collection_inputs['cashier_id'], collection_inputs['added_date'])
 
@@ -527,7 +540,7 @@ class CollectionClass:
             cash_gross_total = int(collection_inputs['cash_gross_amount'])
             cash_net_total = round(int(cash_gross_total)/1.19)
 
-        if collection_count == 0:
+        if existing_collection is None:
             collection = CollectionModel(
                 branch_office_id=collection_inputs['branch_office_id'],
                 cashier_id=collection_inputs['cashier_id'],
@@ -546,26 +559,32 @@ class CollectionClass:
                 self.db.commit()
                 return "Collection stored successfully"
             except Exception as e:
+                self.db.rollback()
+                # Verificar si el error es por duplicado (otro proceso insertó mientras tanto)
+                existing_check = self.existence(collection_inputs['branch_office_id'], collection_inputs['cashier_id'], collection_inputs['added_date'])
+                if existing_check:
+                    return "Collection already exists (concurrent insertion detected)"
                 error_message = str(e)
                 return f"Error: {error_message}"
         else:
-            check_collection = self.db.query(CollectionModel).filter(
-                CollectionModel.cashier_id == collection_inputs['cashier_id'],
-                CollectionModel.branch_office_id == collection_inputs['branch_office_id'],
-                CollectionModel.added_date == collection_inputs['added_date']
-            ).first()
+            # Ya tenemos el registro existente de la consulta anterior
+            if existing_collection.cash_gross_amount != cash_gross_total or existing_collection.card_gross_amount != collection_inputs['card_gross_amount']:
+                existing_collection.cash_gross_amount = cash_gross_total
+                existing_collection.cash_net_amount = cash_net_total
+                existing_collection.card_gross_amount = collection_inputs['card_gross_amount']
+                existing_collection.card_net_amount = collection_inputs['card_net_amount']
+                existing_collection.total_tickets = collection_inputs['total_tickets']
+                existing_collection.updated_date = current_date
+                
+                try:
+                    self.db.commit()
+                    return "Collection updated successfully"
+                except Exception as e:
+                    self.db.rollback()
+                    error_message = str(e)
+                    return f"Error updating collection: {error_message}"
             
-            if check_collection.cash_gross_amount != collection_inputs['cash_gross_amount'] or check_collection.card_gross_amount != collection_inputs['card_gross_amount']:
-                check_collection.cash_gross_amount = collection_inputs['cash_gross_amount']
-                check_collection.cash_net_amount = collection_inputs['cash_net_amount']
-                check_collection.card_gross_amount = collection_inputs['card_gross_amount']
-                check_collection.card_net_amount = collection_inputs['card_net_amount']
-                check_collection.total_tickets = collection_inputs['total_tickets']
-                check_collection.updated_date = current_date
-                self.db.add(check_collection)
-                self.db.commit()
-            
-            return "Collection updated successfully"
+            return "Collection already exists with same values"
         
     def manual_store(self, collection_inputs):
         tz = pytz.timezone('America/Santiago')
