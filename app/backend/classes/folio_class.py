@@ -279,6 +279,7 @@ class FolioClass:
             folio_record.requested_status_id = 1
             folio_record.used_status_id = 1
             folio_record.billed_status_id = 1
+            folio_record.updated_date = datetime.datetime.now(pytz.timezone('America/Santiago')).strftime('%Y-%m-%d %H:%M:%S')
             self.db.commit()
             return f"Folio {folio} updated successfully"
         
