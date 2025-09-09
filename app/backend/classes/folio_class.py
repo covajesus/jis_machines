@@ -276,6 +276,8 @@ class FolioClass:
         folio_record = self.db.query(FolioModel).filter(FolioModel.folio == folio).first()
         
         if folio_record:
+            folio_record.requested_status_id = 1
+            folio_record.used_status_id = 1
             folio_record.billed_status_id = 1
             self.db.commit()
             return f"Folio {folio} updated successfully"
