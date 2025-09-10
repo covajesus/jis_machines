@@ -252,7 +252,7 @@ class FolioClass:
                         # Agrega otros campos necesarios según el modelo FolioModel
                     }
                     serialized_data.append(folio_dict)
-                
+                print(serialized_data)
                 return json.dumps(serialized_data)
             else:
                 return "La cantidad solicitada debe ser mayor a 0."
